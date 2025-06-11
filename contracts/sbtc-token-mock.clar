@@ -115,3 +115,50 @@
     (ok true)
   )
 )
+
+;; Approve spender
+(define-public (approve
+    (spender principal)
+    (amount uint)
+  )
+  (begin
+    (map-set token-allowances {
+      spender: spender,
+      owner: tx-sender,
+    }
+      amount
+    )
+    (print {
+      type: "approve",
+      owner: tx-sender,
+      spender: spender,
+      amount: amount,
+    })
+    (ok true)
+  )
+)
+
+;; Get allowance
+(define-read-only (get-allowance
+    (owner principal)
+    (spender principal)
+  )
+  (ok (default-to u0
+    (map-get? token-allowances {
+      spender: spender,
+      owner: owner,
+    })
+  ))
+)
+
+;; Mint function (for testing purposes only)
+(define-public (mint
+    (amount uint)
+    (recipient principal)
+  )
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (try! (ft-mint? sbtc amount recipient))
+    (ok true)
+  )
+)

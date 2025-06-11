@@ -170,3 +170,100 @@
     (ok net-amount)
   )
 )
+
+;; AMM LIQUIDITY OPERATIONS
+
+;; Create new sBTC trading pair
+(define-public (create-liquidity-pool
+    (token-b principal)
+    (sbtc-amount uint)
+    (token-b-amount uint)
+  )
+  (let (
+      (pool-id {
+        token-a: SBTC_TOKEN_CONTRACT,
+        token-b: token-b,
+      })
+      (caller tx-sender)
+    )
+    ;; Pool creation validation
+    (asserts! (> sbtc-amount u0) ERR_INVALID_AMOUNT)
+    (asserts! (> token-b-amount u0) ERR_INVALID_AMOUNT)
+    (asserts! (is-none (map-get? liquidity-pools pool-id)) ERR_POOL_NOT_FOUND)
+    ;; Transfer initial liquidity to contract
+    (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
+      (as-contract tx-sender) none
+    ))
+    (try! (contract-call? token-b transfer token-b-amount caller
+      (as-contract tx-sender) none
+    ))
+    ;; Initialize pool state
+    (map-set liquidity-pools pool-id {
+      reserve-a: sbtc-amount,
+      reserve-b: token-b-amount,
+      total-supply: (* sbtc-amount token-b-amount),
+      fee-rate: u30, ;; 0.3% trading fee
+    })
+    ;; Mint initial LP tokens to creator
+    (map-set user-lp-tokens {
+      user: caller,
+      pool-id: pool-id,
+    }
+      (* sbtc-amount token-b-amount)
+    )
+    (ok pool-id)
+  )
+)
+
+;; Add liquidity to existing trading pair
+(define-public (add-liquidity
+    (token-b principal)
+    (sbtc-amount uint)
+    (token-b-amount uint)
+    (min-lp-tokens uint)
+  )
+  (let (
+      (pool-id {
+        token-a: SBTC_TOKEN_CONTRACT,
+        token-b: token-b,
+      })
+      (pool-data (unwrap! (map-get? liquidity-pools pool-id) ERR_POOL_NOT_FOUND))
+      (caller tx-sender)
+      (current-lp (default-to u0
+        (map-get? user-lp-tokens {
+          user: caller,
+          pool-id: pool-id,
+        })
+      ))
+      (lp-option-a (/ (* sbtc-amount (get total-supply pool-data)) (get reserve-a pool-data)))
+      (lp-option-b (/ (* token-b-amount (get total-supply pool-data))
+        (get reserve-b pool-data)
+      ))
+      (lp-tokens-to-mint (min-uint lp-option-a lp-option-b))
+    )
+    ;; Slippage protection
+    (asserts! (>= lp-tokens-to-mint min-lp-tokens) ERR_SLIPPAGE_EXCEEDED)
+    ;; Transfer tokens to pool
+    (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
+      (as-contract tx-sender) none
+    ))
+    (try! (contract-call? token-b transfer token-b-amount caller
+      (as-contract tx-sender) none
+    ))
+    ;; Update pool reserves and supply
+    (map-set liquidity-pools pool-id {
+      reserve-a: (+ (get reserve-a pool-data) sbtc-amount),
+      reserve-b: (+ (get reserve-b pool-data) token-b-amount),
+      total-supply: (+ (get total-supply pool-data) lp-tokens-to-mint),
+      fee-rate: (get fee-rate pool-data),
+    })
+    ;; Update user LP token balance
+    (map-set user-lp-tokens {
+      user: caller,
+      pool-id: pool-id,
+    }
+      (+ current-lp lp-tokens-to-mint)
+    )
+    (ok lp-tokens-to-mint)
+  )
+)

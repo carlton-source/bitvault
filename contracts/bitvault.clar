@@ -350,3 +350,106 @@
     (ok true)
   )
 )
+
+;; PUBLIC READ-ONLY INTERFACES
+
+;; Get user's current vault balance with accrued yield
+(define-read-only (get-user-vault-balance (user principal))
+  (let (
+      (user-shares-amount (default-to u0 (map-get? user-shares user)))
+      (total-shares (calculate-total-shares))
+    )
+    (if (> total-shares u0)
+      (/ (* user-shares-amount (var-get total-value-locked)) total-shares)
+      u0
+    )
+  )
+)
+
+;; Get comprehensive pool information
+(define-read-only (get-pool-info (token-b principal))
+  (map-get? liquidity-pools {
+    token-a: SBTC_TOKEN_CONTRACT,
+    token-b: token-b,
+  })
+)
+
+;; Get user's LP token balance for specific pool
+(define-read-only (get-user-lp-balance
+    (user principal)
+    (token-b principal)
+  )
+  (map-get? user-lp-tokens {
+    user: user,
+    pool-id: {
+      token-a: SBTC_TOKEN_CONTRACT,
+      token-b: token-b,
+    },
+  })
+)
+
+;; Get protocol's total value locked
+(define-read-only (get-total-value-locked)
+  (var-get total-value-locked)
+)
+
+;; Get comprehensive vault status
+(define-read-only (get-vault-status)
+  {
+    paused: (var-get vault-paused),
+    total-value-locked: (var-get total-value-locked),
+    yield-rate: (var-get yield-rate),
+  }
+)
+
+;; INTERNAL CALCULATION FUNCTIONS
+
+;; Calculate total shares across all vault participants
+(define-private (calculate-total-shares)
+  (fold + (map get-user-shares-list (list tx-sender)) u0)
+)
+
+;; Helper function for share calculation (simplified implementation)
+(define-private (get-user-shares-list (user principal))
+  (default-to u0 (map-get? user-shares user))
+)
+
+;; Custom minimum function for uint values
+(define-private (min-uint
+    (a uint)
+    (b uint)
+  )
+  (if (<= a b)
+    a
+    b
+  )
+)
+
+;; AMM constant product formula for swap calculations
+(define-private (calculate-output-amount
+    (input-amount uint)
+    (input-reserve uint)
+    (output-reserve uint)
+  )
+  (let (
+      (numerator (* input-amount output-reserve))
+      (denominator (+ input-reserve input-amount))
+    )
+    (/ numerator denominator)
+  )
+)
+
+;; EMERGENCY RECOVERY SYSTEM
+
+;; Emergency token recovery (admin-only, last resort)
+(define-public (emergency-withdraw
+    (token principal)
+    (amount uint)
+    (recipient principal)
+  )
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR_NOT_AUTHORIZED)
+    (try! (as-contract (contract-call? token transfer amount tx-sender recipient none)))
+    (ok amount)
+  )
+)

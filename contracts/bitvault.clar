@@ -267,3 +267,86 @@
     (ok lp-tokens-to-mint)
   )
 )
+
+;; AMM TRADING OPERATIONS
+
+;; Swap sBTC for another token using AMM
+(define-public (swap-sbtc-for-token
+    (token-b principal)
+    (sbtc-amount uint)
+    (min-token-b-out uint)
+  )
+  (let (
+      (pool-id {
+        token-a: SBTC_TOKEN_CONTRACT,
+        token-b: token-b,
+      })
+      (pool-data (unwrap! (map-get? liquidity-pools pool-id) ERR_POOL_NOT_FOUND))
+      (caller tx-sender)
+      (fee-amount (/ (* sbtc-amount (get fee-rate pool-data)) u10000))
+      (sbtc-amount-minus-fee (- sbtc-amount fee-amount))
+      (token-b-out (calculate-output-amount sbtc-amount-minus-fee (get reserve-a pool-data)
+        (get reserve-b pool-data)
+      ))
+    )
+    ;; Slippage and liquidity validation
+    (asserts! (>= token-b-out min-token-b-out) ERR_SLIPPAGE_EXCEEDED)
+    (asserts! (> token-b-out u0) ERR_INSUFFICIENT_LIQUIDITY)
+    ;; Execute token swap
+    (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
+      (as-contract tx-sender) none
+    ))
+    (try! (as-contract (contract-call? token-b transfer token-b-out tx-sender caller none)))
+    ;; Update pool reserves after trade
+    (map-set liquidity-pools pool-id {
+      reserve-a: (+ (get reserve-a pool-data) sbtc-amount-minus-fee),
+      reserve-b: (- (get reserve-b pool-data) token-b-out),
+      total-supply: (get total-supply pool-data),
+      fee-rate: (get fee-rate pool-data),
+    })
+    (ok token-b-out)
+  )
+)
+
+;; YIELD DISTRIBUTION SYSTEM
+
+;; Distribute yield rewards to vault participants
+(define-public (distribute-yield)
+  (let ((total-yield (/ (* (var-get total-value-locked) (var-get yield-rate)) u10000)))
+    (asserts! (default-to false (map-get? authorized-callers tx-sender))
+      ERR_NOT_AUTHORIZED
+    )
+    ;; Add generated yield to protocol TVL
+    (var-set total-value-locked (+ (var-get total-value-locked) total-yield))
+    (ok total-yield)
+  )
+)
+
+;; ADMINISTRATIVE CONTROLS
+
+;; Emergency pause/unpause vault operations
+(define-public (set-vault-pause (paused bool))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR_NOT_AUTHORIZED)
+    (var-set vault-paused paused)
+    (ok paused)
+  )
+)
+
+;; Update protocol yield rate
+(define-public (set-yield-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR_NOT_AUTHORIZED)
+    (var-set yield-rate new-rate)
+    (ok new-rate)
+  )
+)
+
+;; Grant administrative privileges
+(define-public (add-authorized-caller (caller principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR_NOT_AUTHORIZED)
+    (map-set authorized-callers caller true)
+    (ok true)
+  )
+)

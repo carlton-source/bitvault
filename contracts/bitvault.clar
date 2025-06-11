@@ -92,3 +92,81 @@
   principal
   bool
 )
+
+;; CORE PROTOCOL FUNCTIONS
+
+;; Initialize BitVault Pro protocol
+(define-public (initialize)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+    (map-set authorized-callers CONTRACT_OWNER true)
+    (ok true)
+  )
+)
+
+;; VAULT OPERATIONS - YIELD FARMING CORE
+
+;; Deposit sBTC into yield farming vault
+(define-public (deposit-to-vault (amount uint))
+  (let (
+      (caller tx-sender)
+      (current-balance (default-to u0 (map-get? user-deposits caller)))
+      (current-shares (default-to u0 (map-get? user-shares caller)))
+      (total-shares (calculate-total-shares))
+      (new-shares (if (is-eq total-shares u0)
+        amount
+        (/ (* amount total-shares) (var-get total-value-locked))
+      ))
+    )
+    ;; Input validation
+    (asserts! (not (var-get vault-paused)) ERR_VAULT_PAUSED)
+    (asserts! (>= amount MIN_DEPOSIT) ERR_MIN_DEPOSIT_NOT_MET)
+    (asserts! (> amount u0) ERR_INVALID_AMOUNT)
+    ;; Execute sBTC transfer to vault
+    (try! (contract-call? SBTC_TOKEN_CONTRACT transfer amount caller
+      (as-contract tx-sender) none
+    ))
+    ;; Update user position records
+    (map-set user-deposits caller (+ current-balance amount))
+    (map-set user-shares caller (+ current-shares new-shares))
+    (map-set user-last-deposit-time caller block-height)
+    ;; Update protocol TVL
+    (var-set total-value-locked (+ (var-get total-value-locked) amount))
+    (ok new-shares)
+  )
+)
+
+;; Withdraw sBTC from yield farming vault
+(define-public (withdraw-from-vault (shares uint))
+  (let (
+      (caller tx-sender)
+      (user-total-shares (default-to u0 (map-get? user-shares caller)))
+      (total-shares (calculate-total-shares))
+      (withdrawal-amount (if (> total-shares u0)
+        (/ (* shares (var-get total-value-locked)) total-shares)
+        u0
+      ))
+      (fee-amount (/ (* withdrawal-amount VAULT_FEE_BPS) u10000))
+      (net-amount (- withdrawal-amount fee-amount))
+    )
+    ;; Withdrawal validation
+    (asserts! (> shares u0) ERR_INVALID_AMOUNT)
+    (asserts! (>= user-total-shares shares) ERR_INSUFFICIENT_BALANCE)
+    (asserts! (>= (var-get total-value-locked) withdrawal-amount)
+      ERR_INSUFFICIENT_LIQUIDITY
+    )
+    ;; Update user position
+    (map-set user-shares caller (- user-total-shares shares))
+    (if (is-eq (- user-total-shares shares) u0)
+      (map-delete user-deposits caller)
+      true
+    )
+    ;; Update protocol TVL
+    (var-set total-value-locked
+      (- (var-get total-value-locked) withdrawal-amount)
+    )
+    ;; Execute withdrawal transfer
+    (try! (as-contract (contract-call? SBTC_TOKEN_CONTRACT transfer net-amount tx-sender caller none)))
+    (ok net-amount)
+  )
+)

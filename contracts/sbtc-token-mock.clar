@@ -1,5 +1,6 @@
 ;; Mock sBTC Token Contract for Testing
 ;; This implements a simplified SIP-010 fungible token standard
+;; Clarity Version: 4
 
 (define-constant CONTRACT_OWNER tx-sender)
 

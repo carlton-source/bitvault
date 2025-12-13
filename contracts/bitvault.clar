@@ -1,6 +1,20 @@
 ;; BitVault - Advanced sBTC Yield Farming & Automated Market Maker Protocol
+;; Clarity Version: 4
 ;;
 ;; Title: BitVault - sBTC DeFi Yield Optimization Platform
+
+;; SIP-010 FungibleToken Trait
+(define-trait sip010-ft-trait
+  (
+    (transfer (uint principal principal (optional (buff 34))) (response bool uint))
+    (get-name () (response (string-ascii 32) uint))
+    (get-symbol () (response (string-ascii 32) uint))
+    (get-decimals () (response uint uint))
+    (get-balance (principal) (response uint uint))
+    (get-total-supply () (response uint uint))
+    (get-token-uri () (response (optional (string-utf8 256)) uint))
+  )
+)
 ;;
 ;; Summary: A comprehensive DeFi protocol enabling sBTC holders to maximize returns through
 ;;          automated yield farming strategies, liquidity provision, and decentralized trading
@@ -124,12 +138,12 @@
     (asserts! (> amount u0) ERR_INVALID_AMOUNT)
     ;; Execute sBTC transfer to vault
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     ;; Update user position records
     (map-set user-deposits caller (+ current-balance amount))
     (map-set user-shares caller (+ current-shares new-shares))
-    (map-set user-last-deposit-time caller block-height)
+    (map-set user-last-deposit-time caller stacks-block-height)
     ;; Update protocol TVL
     (var-set total-value-locked (+ (var-get total-value-locked) amount))
     (ok new-shares)
@@ -166,7 +180,9 @@
       (- (var-get total-value-locked) withdrawal-amount)
     )
     ;; Execute withdrawal transfer
-    (try! (as-contract (contract-call? SBTC_TOKEN_CONTRACT transfer net-amount tx-sender caller none)))
+    (unwrap! (as-contract? ((with-ft SBTC_TOKEN_CONTRACT "*" net-amount))
+      (unwrap! (contract-call? SBTC_TOKEN_CONTRACT transfer net-amount current-contract caller none) ERR_INSUFFICIENT_LIQUIDITY)
+    ) ERR_INSUFFICIENT_LIQUIDITY)
     (ok net-amount)
   )
 )
@@ -175,14 +191,15 @@
 
 ;; Create new sBTC trading pair
 (define-public (create-liquidity-pool
-    (token-b principal)
+    (token-b <sip010-ft-trait>)
     (sbtc-amount uint)
     (token-b-amount uint)
   )
   (let (
+      (token-b-contract (contract-of token-b))
       (pool-id {
         token-a: SBTC_TOKEN_CONTRACT,
-        token-b: token-b,
+        token-b: token-b-contract,
       })
       (caller tx-sender)
     )
@@ -192,10 +209,10 @@
     (asserts! (is-none (map-get? liquidity-pools pool-id)) ERR_POOL_NOT_FOUND)
     ;; Transfer initial liquidity to contract
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     (try! (contract-call? token-b transfer token-b-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     ;; Initialize pool state
     (map-set liquidity-pools pool-id {
@@ -217,15 +234,16 @@
 
 ;; Add liquidity to existing trading pair
 (define-public (add-liquidity
-    (token-b principal)
+    (token-b <sip010-ft-trait>)
     (sbtc-amount uint)
     (token-b-amount uint)
     (min-lp-tokens uint)
   )
   (let (
+      (token-b-contract (contract-of token-b))
       (pool-id {
         token-a: SBTC_TOKEN_CONTRACT,
-        token-b: token-b,
+        token-b: token-b-contract,
       })
       (pool-data (unwrap! (map-get? liquidity-pools pool-id) ERR_POOL_NOT_FOUND))
       (caller tx-sender)
@@ -245,10 +263,10 @@
     (asserts! (>= lp-tokens-to-mint min-lp-tokens) ERR_SLIPPAGE_EXCEEDED)
     ;; Transfer tokens to pool
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     (try! (contract-call? token-b transfer token-b-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     ;; Update pool reserves and supply
     (map-set liquidity-pools pool-id {
@@ -272,14 +290,15 @@
 
 ;; Swap sBTC for another token using AMM
 (define-public (swap-sbtc-for-token
-    (token-b principal)
+    (token-b <sip010-ft-trait>)
     (sbtc-amount uint)
     (min-token-b-out uint)
   )
   (let (
+      (token-b-contract (contract-of token-b))
       (pool-id {
         token-a: SBTC_TOKEN_CONTRACT,
-        token-b: token-b,
+        token-b: token-b-contract,
       })
       (pool-data (unwrap! (map-get? liquidity-pools pool-id) ERR_POOL_NOT_FOUND))
       (caller tx-sender)
@@ -294,9 +313,11 @@
     (asserts! (> token-b-out u0) ERR_INSUFFICIENT_LIQUIDITY)
     ;; Execute token swap
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
-    (try! (as-contract (contract-call? token-b transfer token-b-out tx-sender caller none)))
+    (unwrap! (as-contract? ((with-ft token-b-contract "*" token-b-out))
+      (unwrap! (contract-call? token-b transfer token-b-out current-contract caller none) ERR_INSUFFICIENT_LIQUIDITY)
+    ) ERR_INSUFFICIENT_LIQUIDITY)
     ;; Update pool reserves after trade
     (map-set liquidity-pools pool-id {
       reserve-a: (+ (get reserve-a pool-data) sbtc-amount-minus-fee),
@@ -351,6 +372,42 @@
   )
 )
 
+;; CLARITY 4 ENHANCED FEATURES
+
+;; Verify contract implementation matches expected hash (Clarity 4)
+(define-read-only (verify-contract-hash (contract-principal principal) (expected-hash (buff 32)))
+  (match (contract-hash? contract-principal)
+    contract-code-hash (ok (is-eq contract-code-hash expected-hash))
+    err-value (err err-value)
+  )
+)
+
+;; Get current block timestamp for time-based operations (Clarity 4)
+(define-read-only (get-current-block-time)
+  stacks-block-time
+)
+
+;; Convert vault status to ASCII string for cross-chain messaging (Clarity 4)
+(define-read-only (get-tvl-as-ascii)
+  (to-ascii? (var-get total-value-locked))
+)
+
+;; Get time-weighted deposit info for user
+(define-read-only (get-user-deposit-info (user principal))
+  (let (
+      (deposit-time (default-to u0 (map-get? user-last-deposit-time user)))
+      (current-time stacks-block-time)
+      (deposit-amount (default-to u0 (map-get? user-deposits user)))
+    )
+    {
+      deposit-amount: deposit-amount,
+      deposit-time: deposit-time,
+      current-time: current-time,
+      time-held: (if (> current-time deposit-time) (- current-time deposit-time) u0)
+    }
+  )
+)
+
 ;; PUBLIC READ-ONLY INTERFACES
 
 ;; Get user's current vault balance with accrued yield
@@ -366,12 +423,15 @@
   )
 )
 
-;; Get comprehensive pool information
+;; Get comprehensive pool information with timestamp
 (define-read-only (get-pool-info (token-b principal))
-  (map-get? liquidity-pools {
+  (match (map-get? liquidity-pools {
     token-a: SBTC_TOKEN_CONTRACT,
     token-b: token-b,
   })
+    pool-data (some (merge pool-data { last-updated: stacks-block-time }))
+    none
+  )
 )
 
 ;; Get user's LP token balance for specific pool
@@ -443,13 +503,15 @@
 
 ;; Emergency token recovery (admin-only, last resort)
 (define-public (emergency-withdraw
-    (token principal)
+    (token <sip010-ft-trait>)
     (amount uint)
     (recipient principal)
   )
   (begin
     (asserts! (is-eq tx-sender (var-get admin)) ERR_NOT_AUTHORIZED)
-    (try! (as-contract (contract-call? token transfer amount tx-sender recipient none)))
+    (unwrap! (as-contract? ((with-all-assets-unsafe))
+      (unwrap! (contract-call? token transfer amount current-contract recipient none) ERR_INSUFFICIENT_LIQUIDITY)
+    ) ERR_INSUFFICIENT_LIQUIDITY)
     (ok amount)
   )
 )

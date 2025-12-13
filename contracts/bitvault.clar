@@ -2,6 +2,19 @@
 ;; Clarity Version: 4
 ;;
 ;; Title: BitVault - sBTC DeFi Yield Optimization Platform
+
+;; SIP-010 FungibleToken Trait
+(define-trait sip010-ft-trait
+  (
+    (transfer (uint principal principal (optional (buff 34))) (response bool uint))
+    (get-name () (response (string-ascii 32) uint))
+    (get-symbol () (response (string-ascii 32) uint))
+    (get-decimals () (response uint uint))
+    (get-balance (principal) (response uint uint))
+    (get-total-supply () (response uint uint))
+    (get-token-uri () (response (optional (string-utf8 256)) uint))
+  )
+)
 ;;
 ;; Summary: A comprehensive DeFi protocol enabling sBTC holders to maximize returns through
 ;;          automated yield farming strategies, liquidity provision, and decentralized trading
@@ -178,14 +191,15 @@
 
 ;; Create new sBTC trading pair
 (define-public (create-liquidity-pool
-    (token-b principal)
+    (token-b <sip010-ft-trait>)
     (sbtc-amount uint)
     (token-b-amount uint)
   )
   (let (
+      (token-b-contract (contract-of token-b))
       (pool-id {
         token-a: SBTC_TOKEN_CONTRACT,
-        token-b: token-b,
+        token-b: token-b-contract,
       })
       (caller tx-sender)
     )
@@ -220,15 +234,16 @@
 
 ;; Add liquidity to existing trading pair
 (define-public (add-liquidity
-    (token-b principal)
+    (token-b <sip010-ft-trait>)
     (sbtc-amount uint)
     (token-b-amount uint)
     (min-lp-tokens uint)
   )
   (let (
+      (token-b-contract (contract-of token-b))
       (pool-id {
         token-a: SBTC_TOKEN_CONTRACT,
-        token-b: token-b,
+        token-b: token-b-contract,
       })
       (pool-data (unwrap! (map-get? liquidity-pools pool-id) ERR_POOL_NOT_FOUND))
       (caller tx-sender)
@@ -275,14 +290,15 @@
 
 ;; Swap sBTC for another token using AMM
 (define-public (swap-sbtc-for-token
-    (token-b principal)
+    (token-b <sip010-ft-trait>)
     (sbtc-amount uint)
     (min-token-b-out uint)
   )
   (let (
+      (token-b-contract (contract-of token-b))
       (pool-id {
         token-a: SBTC_TOKEN_CONTRACT,
-        token-b: token-b,
+        token-b: token-b-contract,
       })
       (pool-data (unwrap! (map-get? liquidity-pools pool-id) ERR_POOL_NOT_FOUND))
       (caller tx-sender)
@@ -299,7 +315,7 @@
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
       current-contract none
     ))
-    (unwrap! (as-contract? ((with-ft token-b "*" token-b-out))
+    (unwrap! (as-contract? ((with-ft token-b-contract "*" token-b-out))
       (unwrap! (contract-call? token-b transfer token-b-out current-contract caller none) ERR_INSUFFICIENT_LIQUIDITY)
     ) ERR_INSUFFICIENT_LIQUIDITY)
     ;; Update pool reserves after trade
@@ -487,7 +503,7 @@
 
 ;; Emergency token recovery (admin-only, last resort)
 (define-public (emergency-withdraw
-    (token principal)
+    (token <sip010-ft-trait>)
     (amount uint)
     (recipient principal)
   )

@@ -167,7 +167,7 @@
       (- (var-get total-value-locked) withdrawal-amount)
     )
     ;; Execute withdrawal transfer
-    (unwrap! (as-contract? ((with-ft SBTC_TOKEN_CONTRACT \"*\" net-amount))
+    (unwrap! (as-contract? ((with-ft SBTC_TOKEN_CONTRACT "*" net-amount))
       (unwrap! (contract-call? SBTC_TOKEN_CONTRACT transfer net-amount current-contract caller none) ERR_INSUFFICIENT_LIQUIDITY)
     ) ERR_INSUFFICIENT_LIQUIDITY)
     (ok net-amount)

@@ -125,7 +125,7 @@
     (asserts! (> amount u0) ERR_INVALID_AMOUNT)
     ;; Execute sBTC transfer to vault
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     ;; Update user position records
     (map-set user-deposits caller (+ current-balance amount))
@@ -167,7 +167,9 @@
       (- (var-get total-value-locked) withdrawal-amount)
     )
     ;; Execute withdrawal transfer
-    (try! (as-contract (contract-call? SBTC_TOKEN_CONTRACT transfer net-amount tx-sender caller none)))
+    (try! (unwrap! (as-contract? ((with-ft SBTC_TOKEN_CONTRACT "*" net-amount))
+      (contract-call? SBTC_TOKEN_CONTRACT transfer net-amount current-contract caller none)
+    ) ERR_INSUFFICIENT_LIQUIDITY))
     (ok net-amount)
   )
 )
@@ -193,10 +195,10 @@
     (asserts! (is-none (map-get? liquidity-pools pool-id)) ERR_POOL_NOT_FOUND)
     ;; Transfer initial liquidity to contract
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     (try! (contract-call? token-b transfer token-b-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     ;; Initialize pool state
     (map-set liquidity-pools pool-id {
@@ -246,10 +248,10 @@
     (asserts! (>= lp-tokens-to-mint min-lp-tokens) ERR_SLIPPAGE_EXCEEDED)
     ;; Transfer tokens to pool
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     (try! (contract-call? token-b transfer token-b-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
     ;; Update pool reserves and supply
     (map-set liquidity-pools pool-id {
@@ -295,9 +297,11 @@
     (asserts! (> token-b-out u0) ERR_INSUFFICIENT_LIQUIDITY)
     ;; Execute token swap
     (try! (contract-call? SBTC_TOKEN_CONTRACT transfer sbtc-amount caller
-      (as-contract tx-sender) none
+      current-contract none
     ))
-    (try! (as-contract (contract-call? token-b transfer token-b-out tx-sender caller none)))
+    (try! (unwrap! (as-contract? ((with-ft token-b "*" token-b-out))
+      (contract-call? token-b transfer token-b-out current-contract caller none)
+    ) ERR_INSUFFICIENT_LIQUIDITY))
     ;; Update pool reserves after trade
     (map-set liquidity-pools pool-id {
       reserve-a: (+ (get reserve-a pool-data) sbtc-amount-minus-fee),
@@ -489,7 +493,9 @@
   )
   (begin
     (asserts! (is-eq tx-sender (var-get admin)) ERR_NOT_AUTHORIZED)
-    (try! (as-contract (contract-call? token transfer amount tx-sender recipient none)))
+    (try! (unwrap! (as-contract? ((with-all-assets-unsafe))
+      (contract-call? token transfer amount current-contract recipient none)
+    ) ERR_INSUFFICIENT_LIQUIDITY))
     (ok amount)
   )
 )

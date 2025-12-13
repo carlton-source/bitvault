@@ -1,14 +1,20 @@
 [project]
-name = 'vesting'
-description = ''
+name = 'bitvault'
+description = 'Advanced sBTC Yield Farming & AMM Protocol'
 authors = []
 telemetry = true
 cache_dir = './.cache'
 
 [[project.requirements]]
 contract_id = 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit'
-[contracts.vesting]
-path = 'contracts/vesting.clar'
+
+[contracts.bitvault]
+path = 'contracts/bitvault.clar'
+clarity_version = 4
+epoch = 'latest'
+
+[contracts.sbtc-token-mock]
+path = 'contracts/sbtc-token-mock.clar'
 clarity_version = 4
 epoch = 'latest'
 [repl.analysis]

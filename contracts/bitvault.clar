@@ -1,4 +1,5 @@
 ;; BitVault - Advanced sBTC Yield Farming & Automated Market Maker Protocol
+;; Clarity Version: 4
 ;;
 ;; Title: BitVault - sBTC DeFi Yield Optimization Platform
 ;;
@@ -129,7 +130,7 @@
     ;; Update user position records
     (map-set user-deposits caller (+ current-balance amount))
     (map-set user-shares caller (+ current-shares new-shares))
-    (map-set user-last-deposit-time caller block-height)
+    (map-set user-last-deposit-time caller stacks-block-height)
     ;; Update protocol TVL
     (var-set total-value-locked (+ (var-get total-value-locked) amount))
     (ok new-shares)
@@ -351,6 +352,42 @@
   )
 )
 
+;; CLARITY 4 ENHANCED FEATURES
+
+;; Verify contract implementation matches expected hash (Clarity 4)
+(define-read-only (verify-contract-hash (contract-principal principal) (expected-hash (buff 32)))
+  (match (contract-hash? contract-principal)
+    contract-code-hash (ok (is-eq contract-code-hash expected-hash))
+    err-value (err err-value)
+  )
+)
+
+;; Get current block timestamp for time-based operations (Clarity 4)
+(define-read-only (get-current-block-time)
+  stacks-block-time
+)
+
+;; Convert vault status to ASCII string for cross-chain messaging (Clarity 4)
+(define-read-only (get-tvl-as-ascii)
+  (to-ascii? (var-get total-value-locked))
+)
+
+;; Get time-weighted deposit info for user
+(define-read-only (get-user-deposit-info (user principal))
+  (let (
+      (deposit-time (default-to u0 (map-get? user-last-deposit-time user)))
+      (current-time stacks-block-time)
+      (deposit-amount (default-to u0 (map-get? user-deposits user)))
+    )
+    {
+      deposit-amount: deposit-amount,
+      deposit-time: deposit-time,
+      current-time: current-time,
+      time-held: (if (> current-time deposit-time) (- current-time deposit-time) u0)
+    }
+  )
+)
+
 ;; PUBLIC READ-ONLY INTERFACES
 
 ;; Get user's current vault balance with accrued yield
@@ -366,12 +403,15 @@
   )
 )
 
-;; Get comprehensive pool information
+;; Get comprehensive pool information with timestamp
 (define-read-only (get-pool-info (token-b principal))
-  (map-get? liquidity-pools {
+  (match (map-get? liquidity-pools {
     token-a: SBTC_TOKEN_CONTRACT,
     token-b: token-b,
   })
+    pool-data (some (merge pool-data { last-updated: stacks-block-time }))
+    none
+  )
 )
 
 ;; Get user's LP token balance for specific pool

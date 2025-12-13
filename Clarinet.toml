@@ -1,5 +1,5 @@
 [project]
-name = 'bitvault'
+name = 'vesting'
 description = ''
 authors = []
 telemetry = true
@@ -7,17 +7,14 @@ cache_dir = './.cache'
 
 [[project.requirements]]
 contract_id = 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-deposit'
-[contracts.bitvault]
-path = 'contracts/bitvault.clar'
-clarity_version = 3
-epoch = 3.1
-
-[contracts.sbtc-token-mock]
-path = 'contracts/sbtc-token-mock.clar'
-clarity_version = 3
-epoch = 3.1
+[contracts.vesting]
+path = 'contracts/vesting.clar'
+clarity_version = 4
+epoch = 'latest'
 [repl.analysis]
 passes = ['check_checker']
+
+[repl.analysis.lints]
 
 [repl.analysis.check_checker]
 strict = false

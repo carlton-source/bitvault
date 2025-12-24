@@ -11,6 +11,7 @@ BitVault is a comprehensive DeFi protocol that enables sBTC holders to maximize 
 - **AMM Trading**: Swap sBTC with other tokens using constant product market maker formulas
 - **Risk Management**: Built-in slippage protection and emergency controls
 - **Scalable Architecture**: Designed for Stacks Layer 2 efficiency
+- **WalletConnect Integration**: Connect to dApps using WalletConnect protocol for seamless interactions
 
 ## 📋 System Overview
 
@@ -211,6 +212,8 @@ Returns current vault status including pause state and yield rate.
 - Stacks blockchain access
 - sBTC tokens for testing/deployment
 - Clarity smart contract development environment
+- Node.js and npm for WalletConnect integration
+- WalletConnect Project ID from [WalletConnect Cloud](https://cloud.walletconnect.com/)
 
 ### Deployment
 
@@ -218,6 +221,21 @@ Returns current vault status including pause state and yield rate.
 2. Initialize the protocol using `initialize()`
 3. Set up authorized callers for yield distribution
 4. Configure initial yield rates and parameters
+
+### WalletConnect Setup
+
+1. Install dependencies:
+```bash
+npm install @reown/walletkit @walletconnect/utils @walletconnect/core
+```
+
+2. Configure environment variables:
+```bash
+cp .env.example .env
+# Add your WalletConnect Project ID to .env
+```
+
+3. See [WALLETCONNECT.md](WALLETCONNECT.md) for detailed integration guide
 
 ### Usage Examples
 
